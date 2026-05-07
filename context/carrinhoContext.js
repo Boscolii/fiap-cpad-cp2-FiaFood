@@ -1,195 +1,183 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useState, useEffect, useContext } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from './AuthContext';
+import { AuthContext } from './AuthContext';
 
-const CarrinhoContext = createContext(null);
+export const CarrinhoContext = createContext();
 
-const cuponsIniciais = [
-  { id: 1, emoji: '*', titulo: 'Primeira Compra', codigo: 'BEMVINDO15', tipo: 'porcentagem', valor: 15, resgatado: false },
-  { id: 2, emoji: '*', titulo: 'Pedido pelo App', codigo: 'APP5', tipo: 'porcentagem', valor: 5, resgatado: false },
-  { id: 3, emoji: '*', titulo: 'Comeco de Ano', codigo: 'ANOVO10', tipo: 'porcentagem', valor: 10, resgatado: false },
-  { id: 4, emoji: '*', titulo: 'Segundo Ano', codigo: 'SEGUNDOANO5', tipo: 'fixo', valor: 5, resgatado: false },
-];
+// Gera um ID único simples para cada pedido
+const gerarId = () =>
+  Date.now().toString(36) + Math.random().toString(36).slice(2);
 
 export function CarrinhoProvider({ children }) {
-  const { usuario } = useAuth();
+  const { usuario } = useContext(AuthContext);
 
-  const [carrinho, setCarrinho] = useState([]);
+  const [itens, setItens] = useState([]);
   const [cupomAplicado, setCupomAplicado] = useState(null);
-  const [localEntrega, setLocalEntrega] = useState('Entrada - 1 Andar');
-  const [cupons, setCupons] = useState(cuponsIniciais);
+  const [cuponsResgatados, setCuponsResgatados] = useState([]);
   const [pedidos, setPedidos] = useState([]);
-  const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
+  const [localEntrega, setLocalEntrega] = useState('');
 
- 
-  const getChaveCarrinho = (userId) => `@fiafood:carrinho_${userId}`;
-  const getChaveCupom = (userId) => `@fiafood:cupom_${userId}`;
-  const getChaveCupons = (userId) => `@fiafood:cupons_${userId}`;
-  const getChavePedidos = (userId) => `@fiafood:pedidos_${userId}`;
+  // ─── Chaves de storage por usuário ────────────────────────────────────────
+  const chaveCarrinho = usuario
+    ? `@fiafood:carrinho:${usuario.email}`
+    : '@fiafood:carrinho';
 
+  const chaveCupom = usuario
+    ? `@fiafood:cupom:${usuario.email}`
+    : '@fiafood:cupom';
 
+  const chaveCupons = usuario
+    ? `@fiafood:cupons:${usuario.email}`
+    : '@fiafood:cupons';
+
+  const chavePedidos = usuario
+    ? `@fiafood:pedidos:${usuario.email}`
+    : '@fiafood:pedidos';
+
+  // ─── Carrega dados ao montar ou trocar usuário ─────────────────────────────
   useEffect(() => {
-    async function carregarDados() {
-      try {
-        if (!usuario) {
-          setCarrinho([]);
-          setCupomAplicado(null);
-          setPedidos([]);
-          setCupons(cuponsIniciais);
-          return;
-        }
-
-        const carrinhoSalvo = await AsyncStorage.getItem(getChaveCarrinho(usuario.id));
-        const cupomSalvo = await AsyncStorage.getItem(getChaveCupom(usuario.id));
-        const cuponsSalvos = await AsyncStorage.getItem(getChaveCupons(usuario.id));
-        const pedidosSalvos = await AsyncStorage.getItem(getChavePedidos(usuario.id));
-
-        setCarrinho(carrinhoSalvo ? JSON.parse(carrinhoSalvo) : []);
-        setCupomAplicado(cupomSalvo ? JSON.parse(cupomSalvo) : null);
-        setCupons(cuponsSalvos ? JSON.parse(cuponsSalvos) : cuponsIniciais);
-        setPedidos(pedidosSalvos ? JSON.parse(pedidosSalvos) : []);
-      } catch (error) {
-        console.log('Erro ao carregar dados do carrinho', error);
-      } finally {
-        setCarregandoCarrinho(false);
-      }
-    }
-
-    setCarregandoCarrinho(true);
     carregarDados();
   }, [usuario]);
 
-  
-  useEffect(() => {
-    if (!carregandoCarrinho && usuario) {
-      AsyncStorage.setItem(
-        getChaveCarrinho(usuario.id),
-        JSON.stringify(carrinho)
-      );
+  const carregarDados = async () => {
+    try {
+      const [carrinhoSalvo, cupomSalvo, cuponsSalvos, pedidosSalvos] =
+        await Promise.all([
+          AsyncStorage.getItem(chaveCarrinho),
+          AsyncStorage.getItem(chaveCupom),
+          AsyncStorage.getItem(chaveCupons),
+          AsyncStorage.getItem(chavePedidos),
+        ]);
+
+      if (carrinhoSalvo) setItens(JSON.parse(carrinhoSalvo));
+      if (cupomSalvo) setCupomAplicado(JSON.parse(cupomSalvo));
+      if (cuponsSalvos) setCuponsResgatados(JSON.parse(cuponsSalvos));
+      if (pedidosSalvos) setPedidos(JSON.parse(pedidosSalvos));
+    } catch (e) {
+      console.error('Erro ao carregar dados:', e);
     }
-  }, [carrinho, carregandoCarrinho, usuario]);
+  };
 
+  // ─── Persistência automática do carrinho ──────────────────────────────────
+  useEffect(() => {
+    AsyncStorage.setItem(chaveCarrinho, JSON.stringify(itens)).catch(
+      console.error
+    );
+  }, [itens]);
 
   useEffect(() => {
-    if (!carregandoCarrinho && usuario) {
-      if (cupomAplicado) {
-        AsyncStorage.setItem(
-          getChaveCupom(usuario.id),
-          JSON.stringify(cupomAplicado)
+    AsyncStorage.setItem(chaveCupom, JSON.stringify(cupomAplicado)).catch(
+      console.error
+    );
+  }, [cupomAplicado]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(chaveCupons, JSON.stringify(cuponsResgatados)).catch(
+      console.error
+    );
+  }, [cuponsResgatados]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(chavePedidos, JSON.stringify(pedidos)).catch(
+      console.error
+    );
+  }, [pedidos]);
+
+  // ─── Cálculo do total ─────────────────────────────────────────────────────
+  const subtotal = itens.reduce(
+    (acc, item) => acc + Number(item.preco) * item.quantidade,
+    0
+  );
+
+  const desconto = cupomAplicado
+    ? subtotal * (cupomAplicado.desconto / 100)
+    : 0;
+
+  const total = subtotal - desconto;
+
+  // ─── Ações do carrinho ────────────────────────────────────────────────────
+  const adicionarItem = (produto) => {
+    setItens((prev) => {
+      const existe = prev.find((i) => i.id === produto.id);
+      if (existe) {
+        return prev.map((i) =>
+          i.id === produto.id ? { ...i, quantidade: i.quantidade + 1 } : i
         );
-      } else {
-        AsyncStorage.removeItem(getChaveCupom(usuario.id));
       }
-    }
-  }, [cupomAplicado, carregandoCarrinho, usuario]);
+      return [...prev, { ...produto, quantidade: 1 }];
+    });
+  };
 
-
-  useEffect(() => {
-    if (!carregandoCarrinho && usuario) {
-      AsyncStorage.setItem(
-        getChaveCupons(usuario.id),
-        JSON.stringify(cupons)
-      );
-    }
-  }, [cupons, carregandoCarrinho, usuario]);
-
-
-  useEffect(() => {
-    if (!carregandoCarrinho && usuario) {
-      AsyncStorage.setItem(
-        getChavePedidos(usuario.id),
-        JSON.stringify(pedidos)
-      );
-    }
-  }, [pedidos, carregandoCarrinho, usuario]);
-
- 
-  const adicionarItem = (produto) => setCarrinho((prev) => [...prev, produto]);
-
-  const removerItem = (index) =>
-    setCarrinho((prev) => prev.filter((_, i) => i !== index));
+  const removerItem = (produtoId) => {
+    setItens((prev) => {
+      const existe = prev.find((i) => i.id === produtoId);
+      if (existe && existe.quantidade > 1) {
+        return prev.map((i) =>
+          i.id === produtoId ? { ...i, quantidade: i.quantidade - 1 } : i
+        );
+      }
+      return prev.filter((i) => i.id !== produtoId);
+    });
+  };
 
   const limparCarrinho = () => {
-    setCarrinho([]);
+    setItens([]);
     setCupomAplicado(null);
   };
 
-  const aplicarCupom = (cupom) => setCupomAplicado(cupom);
+  // ─── Cupons ───────────────────────────────────────────────────────────────
+  const aplicarCupom = (cupom) => {
+    setCupomAplicado(cupom);
+    if (!cuponsResgatados.includes(cupom.codigo)) {
+      setCuponsResgatados((prev) => [...prev, cupom.codigo]);
+    }
+  };
 
   const removerCupom = () => setCupomAplicado(null);
 
-  const resgatarCupom = (id) => {
-    const cupom = cupons.find((item) => item.id === id);
-    if (!cupom || cupom.resgatado) return null;
-
-    aplicarCupom(cupom);
-
-    setCupons((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, resgatado: true } : item
-      )
-    );
-
-    return cupom;
-  };
-
-  const total = (() => {
-    let valor = carrinho.reduce((acc, item) => acc + item.preco, 0);
-
-    if (cupomAplicado) {
-      if (cupomAplicado.tipo === 'porcentagem') {
-        valor -= valor * (cupomAplicado.valor / 100);
-      } else {
-        valor -= cupomAplicado.valor;
-      }
-    }
-
-    return Math.max(valor, 0);
-  })();
-
+  // ─── Finalizar pedido (salva no histórico do usuário) ────────────────────
   const finalizarPedido = () => {
+    if (itens.length === 0) return false;
+
     const novoPedido = {
-      id: Date.now(),
-      itens: carrinho,
-      cupom: cupomAplicado,
+      id: gerarId(),
+      data: new Date().toISOString(),
+      itens: itens.map((i) => ({ ...i })),
+      subtotal,
+      desconto,
       total,
-      data: new Date().toLocaleString('pt-BR'),
+      cupomAplicado: cupomAplicado?.codigo || null,
       localEntrega,
+      status: 'concluido',
+      usuario: usuario?.email || null,
     };
 
-    setPedidos((prev) => [novoPedido, ...prev]);
+    setPedidos((prev) => [...prev, novoPedido]);
     limparCarrinho();
-
-    return novoPedido;
+    return true;
   };
 
   return (
     <CarrinhoContext.Provider
       value={{
-        carrinho,
+        itens,
+        cupomAplicado,
+        cuponsResgatados,
+        pedidos,
+        localEntrega,
+        subtotal,
+        desconto,
+        total,
+        setLocalEntrega,
         adicionarItem,
         removerItem,
         limparCarrinho,
-        cupomAplicado,
         aplicarCupom,
         removerCupom,
-        cupons,
-        resgatarCupom,
-        pedidos,
         finalizarPedido,
-        carregandoCarrinho,
-        localEntrega,
-        setLocalEntrega,
-        total,
       }}
     >
       {children}
     </CarrinhoContext.Provider>
   );
-}
-
-export function useCarrinho() {
-  const ctx = useContext(CarrinhoContext);
-  if (!ctx) throw new Error('useCarrinho deve ser usado dentro de CarrinhoProvider');
-  return ctx;
 }

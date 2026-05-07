@@ -89,6 +89,18 @@ function TabsNavegacao() {
           ),
         }}
       />
+
+      {/* ✅ Nova aba - Histórico de Pedidos */}
+      <Tabs.Screen
+        name="historico"
+        options={{
+          title: 'Histórico',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="receipt" size={size} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="login"
         options={{
